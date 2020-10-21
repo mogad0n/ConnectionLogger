@@ -33,7 +33,7 @@ import os
 import sys
 import time
 
-from supybot import utils, plugins, ircutils, callbacks, ircdb, conf,
+from supybot import utils, plugins, ircmsgs, ircutils, callbacks, ircdb, conf
 from supybot.commands import *
 try:
     from supybot.i18n import PluginInternationalization
@@ -49,19 +49,19 @@ class ConnectionLogger(callbacks.Plugin):
     threaded = True
 
     def doNotice (self, irc, msg):
-        (targets, text) = msg.args
-        if len(targets) and targets[0] == irc.nick:
+        (target, text) = msg.args
+        if target == irc.nick:
             # server notices
             text = ircutils.stripFormatting(text)
             connregex = "^-CONNECT- Client\sconnected\s\[(.+)\]\s\[u\:~?(.+)\]\s\[h\:(.+)\]\s\[ip\:(.+)\]\s\[r\:(.+)\]$"
             conn = re.match(connregex, text)
-            nick = conn.group(1)
+            nickname = conn.group(1)
             username = conn.group(2)
             host = conn.group(3)
             ip = conn.group(4)
             realname = conn.group(5)
-    irc.queueMsg(msg=ircmsgs.IrcMsg(command='PRIVMSG',
-                    args=('#connects', f'nick: {nick} username: {username} hostname: {host} ip: {ip} realname: {realname}')))
+        irc.queueMsg(msg=ircmsgs.IrcMsg(command='PRIVMSG',
+                    args=('#connects', f'nick: {nickname} username: {username} hostname: {host} ip: {ip} realname: {realname}')))
 
 Class = ConnectionLogger
 
