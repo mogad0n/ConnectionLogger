@@ -25,19 +25,9 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-
 ###
 
-### My libs
-
-import re
-import os
-import sys
-import time
-import json
-import pickle
-
-### Supybot libs
+# Supybot libs
 
 from supybot import utils, plugins, ircmsgs, ircutils, callbacks, ircdb, conf, log, world
 from supybot.commands import *
@@ -49,16 +39,19 @@ except ImportError:
     # without the i18n module
     _ = lambda x: x
 
-# use sqlite instead 
-filename = conf.supybot.directories.data.dirize("ConnectionLogger.db")
+# My libs
 
+import re
+import os
+import sys
+import time
 
 class ConnectionLogger(callbacks.Plugin):
     """Should Log connection information and display in a given channel"""
 
     threaded = True
 
-    def doNotice (self, irc, msg):
+    def doNotice(self, irc, msg):
         (target, text) = msg.args
         if target == irc.nick:
             # server notices CONNECT, KILL, XLINE
@@ -74,9 +67,39 @@ class ConnectionLogger(callbacks.Plugin):
                 ip_seen = 0
                 nick_seen = 0
                 DictFromSnotice = {'notice': 'connect', 'nickname': nickname, 'username': username, 'host': host, 'ip': ip, 'realname': realname, 'ipCount': ip_seen, 'nickCount': nick_seen}
-                re = f"\x02\x1FNOTICE: {DictFromSnotice['notice']}\x0F\x11\x0303==>>\x0F \x02Nick:\x0F {DictFromSnotice['nickname']} \x02Username:\x0F {DictFromSnotice['username']} \x02Hostname:\x0F {DictFromSnotice['host']} \x02IP:\x0F {DictFromSnotice['ip']} \x02Realname:\x0F {DictFromSnotice['realname']} \x02IPcount:\x0F {DictFromSnotice['ipCount']} \x02NickCount:\x0F {DictFromSnotice['nickCount']}"
-                self._sendSnotice(irc, msg, re)
-            elif 'KILL' in text:
+                repl = f"\x02\x1FNOTICE: {DictFromSnotice['notice']} \x0F\x11\x0303==>>\x0F \x02Nick:\x0F {DictFromSnotice['nickname']} \x02Username:\x0F {DictFromSnotice['username']} \x02Hostname:\x0F {DictFromSnotice['host']} \x02IP:\x0F {DictFromSnotice['ip']} \x02Realname:\x0F {DictFromSnotice['realname']} \x02IPcount:\x0F {DictFromSnotice['ipCount']} \x02NickCount:\x0F {DictFromSnotice['nickCount']}"
+                self._sendSnotice(irc, msg, repl)
+            if 'XLINE' in text and 'temporary' in text:
+                xlineregex = "^-XLINE- (.+) \[(.+)\] added temporary \((.+)\) (K-Line|D-Line) for (.+)$"
+                couple = re.match(xlineregex, text)
+                who = couple.group(1)
+                who_operator = couple.group(2)
+                duration = couple.group(3)
+                which_line = couple.group(4)
+                host_or_ip = couple.group(5)
+                DictFromSnotice = {'notice': 'tempban', 'who': who, 'operator': who_operator, 'duration': duration, 'type': which_line, 'target': host_or_ip}
+                repl = f"\x02\x1FNOTICE: {DictFromSnotice['notice']}\x0F \x11\x0303🚫\x0F \x02BannedBy:\x0F {DictFromSnotice['who']} \x02BannedByOper:\x0F {DictFromSnotice['operator']} \x02Duration:\x0F {DictFromSnotice['duration']} \x02XLINE Type:\x0F {DictFromSnotice['type']} \x02Nick:\x0F {DictFromSnotice['target']}"
+                self._sendSnotice(irc, msg, repl)
+            elif 'XLINE' in text and 'temporary' not in text and 'removed' not in text:
+                perm_xline_regex = "^-XLINE- (.+) \[(.+)\] added (D-Line|K-Line) for (.+)$"
+                couple = re.match(perm_xline_regex, text)
+                who = couple.group(1)
+                who_operator = couple.group(2)
+                which_line = couple.group(3)
+                host_or_ip = couple.group(4)
+                DictFromSnotice = {'notice': 'Permaban', 'who': who, 'operator': who_operator, 'duration': duration, 'type': which_line, 'target': host_or_ip}
+                repl = f"\x02\x1FNOTICE: {DictFromSnotice['notice']} \x0F \x11\x0303🚫\x0F \x02BannedBy:\x0F {DictFromSnotice['who']} \x02BannedByOper:\x0F {DictFromSnotice['operator']} \x02XLINE Type:\x0F {DictFromSnotice['type']} \x02Host/IP:\x0F {DictFromSnotice['target']}"
+                self._sendSnotice(irc, msg, repl)
+            elif 'XLINE' in text and 'removed' in text:
+                unxlineregex = "^-XLINE- (.+) removed (D-Line|K-Line) for (.+)$"
+                couple = re.match(unxlineregex, text)
+                who = couple.group(1)
+                which_line = couple.group(2)
+                host_or_ip = couple.group(3)
+                DictFromSnotice = {'notice': 'unxline', 'who': who, 'type': which_line, 'target': host_or_ip}
+                repl = f"\x02\x1FNOTICE: {DictFromSnotice['notice']} \x0F\x11\x0303😇\x0F \x02UnbannedBy:\x0F {DictFromSnotice['who']} \x02XLINE type:\x0F {DictFromSnotice['type']} \x02Host/IP:\x0F {DictFromSnotice['target']}"
+                self._sendSnotice(irc, msg, repl)
+            if 'KILL' in text:
                 killregex = "^-KILL- (.+) \[(.+)\] killed (\d) clients with a (KLINE|DLINE) \[(.+)\]$"
                 couple = re.match(killregex, text)
                 who = couple.group(1)
@@ -85,44 +108,15 @@ class ConnectionLogger(callbacks.Plugin):
                 which_line = couple.group(4)
                 nick = couple.group(5)
                 DictFromSnotice = {'notice': 'kill', 'who': who, 'operator': who_operator, "client": clients, 'type': which_line, 'nick': nick}
-                re = f"\x02\x1FNOTICE: {DictFromSnotice['notice']} \x0F\x11\x0303☠\x0F \x02KilledBy:\x0F {DictFromSnotice['who']} \x02KilledByOper:\x0F {DictFromSnotice['operator']} \x02NumofClientsAffected:\x0F {DictFromSnotice['client']} \x02XLINE Type:\x0F {DictFromSnotice['type']} \x02Nick:\x0F {DictFromSnotice['nick']}"
-                self._sendSnotice(irc, msg, re)
-            elif 'XLINE' in text and 'temporary' in text:
-                xlineregex = "^-XLINE- (.+) \[(.+)\] added a temporary \((.+)\) (K-Line|D-Line) for (.+)$"
-                couple = re.match(xlineregex, text)
-                who = couple.group(1)
-                who_operator = couple.group(2)
-                duration = couple.group(3)
-                which_line = couple.group(4)
-                host_or_ip = couple.group(5)
-                DictFromSnotice = {'notice': 'tempban', 'who': who, 'operator': who_operator, 'duration': duration, 'type': which_line, 'target': host_or_ip}
-                re = f"\x02\x1FNOTICE: {DictFromSnotice['notice']}\x0F \x11\x0303🚫\x0F \x02BannedBy:\x0F {DictFromSnotice['who']} \x02BannedByOper:\x0F {DictFromSnotice['operator']} \x02Duration:\x0F {DictFromSnotice['duration']} \x02XLINE Type:\x0F {DictFromSnotice['type']} \x02Nick:\x0F {DictFromSnotice['nick']}"
-                self._sendSnotice(irc, msg, DictFromSnotice, re)
-            elif 'XLINE' in text and 'removed' not in text:
-                perm_xline_regex = "^-XLINE- (.+) \[(.+)\] added (D-Line|K-Line) for (.+)$"
-                couple = re.match(perm_xline_regex, text)
-                who = couple.group(1)
-                who_operator = couple.group(2)
-                which_line = couple.group(3)
-                host_or_ip = couple.group(4)
-                DictFromSnotice = {'notice': 'Permaban', 'who': who, 'operator': who_operator, 'duration': duration, 'type': which_line, 'target': host_or_ip}
-                re = f"\x02\x1FNOTICE: {DictFromSnotice['notice']} \x0F \x11\x0303🚫\x0F \x02BannedBy:\x0F {DictFromSnotice['who']} \x02BannedByOper:\x0F {DictFromSnotice['operator']} \x02XLINE Type:\x0F {DictFromSnotice['type']} \x02Host/IP:\x0F {DictFromSnotice['target']}"
-                self._sendSnotice(irc, msg, re)
-            elif 'XLINE' in text and 'removed' in text:
-                unxlineregex = "^-XLINE- (.+) removed (D-Line|K-Line) for (.+)$"
-                couple = re.match(unxlineregex, text)
-                who = couple.group(1)
-                which_line = couple.group(4)
-                host_or_ip = couple.group(5)
-                DictFromSnotice = {'notice': 'unxline', 'who': who, 'type': which_line, 'target': host_or_ip}
-                re = f"\x02\x1FNOTICE: {DictFromSnotice['notice']} \x0F\x11\x0303😇\x0F \x02UnbannedBy:\x0F {DictFromSnotice['who']} \x02XLINE type:\x0F {DictFromSnotice['type']} \x02Host/IP:\x0F {DictFromSnotice['target']}"
-                self._sendSnotice(irc, msg, re)
+                repl = f"\x02\x1FNOTICE: {DictFromSnotice['notice']} \x0F\x11\x0303☠\x0F \x02KilledBy:\x0F {DictFromSnotice['who']} \x02KilledByOper:\x0F {DictFromSnotice['operator']} \x02NumofClientsAffected:\x0F {DictFromSnotice['client']} \x02XLINE Type:\x0F {DictFromSnotice['type']} \x02Nick:\x0F {DictFromSnotice['nick']}"
+                self._sendSnotice(irc, msg, repl)
 
-    def _sendSnotice(self, irc, msg, re):
+    def _sendSnotice(self, irc, msg, repl):
         irc.queueMsg(msg=ircmsgs.IrcMsg(command='PRIVMSG',
-                    args=('#snotices', re)))
+                    args=('#snotices', repl)))
 
 Class = ConnectionLogger
 
 
 # vim:set shiftwidth=4 softtabstop=4 expandtab textwidth=79:
+
